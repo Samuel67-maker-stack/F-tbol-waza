@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Fútbol 2D</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#10261b; color:#fff; font-family:system-ui,Arial,sans-serif; text-align:center; }
+  main { width:min(100%,1000px); margin:auto; padding:12px; }
+  h1 { margin:4px 0 8px; font-size:clamp(22px,5vw,34px); }
+  .hud { display:flex; justify-content:center; align-items:center; gap:18px; margin:8px 0; font-weight:800; font-size:clamp(18px,4vw,25px); }
+  canvas { display:block; width:100%; height:auto; border:3px solid #e9f7e8; border-radius:12px; background:#258a48; touch-action:none; }
+  .help { color:#d6eadb; font-size:14px; margin:10px 0; }
+  .controls { display:flex; justify-content:space-between; gap:18px; align-items:center; max-width:520px; margin:10px auto; }
+  .pad { display:grid; grid-template-columns:repeat(3,48px); grid-template-rows:repeat(2,44px); gap:4px; }
+  button { border:0; border-radius:12px; padding:10px 14px; color:#fff; background:#235fbd; font-size:16px; font-weight:700; touch-action:manipulation; }
+  .pad button { padding:4px; background:#355a49; font-size:20px; }
+  .kick { background:#e67e22; min-width:100px; min-height:64px; }
+  .restart { background:#59636d; margin:4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>⚽ Fútbol 2D</h1>
+  <div class="hud"><span>AZUL <span id="scoreA">0</span></span><span id="clock">01:30</span><span>ROJO <span id="scoreB">0</span></span></div>
+  <canvas id="game" width="900" height="540" aria-label="Juego de fútbol 2D"></canvas>
+  <div class="help">Mueve al jugador azul. Acércate al balón y pulsa CHUTAR para intentar marcar.</div>
+  <div class="controls">
+    <div class="pad" aria-label="Controles de movimiento">
+      <span></span><button data-dir="up">▲</button><span></span>
+      <button data-dir="left">◀</button><button data-dir="down">▼</button><button data-dir="right">▶</button>
+    </div>
+    <button class="kick" id="kick">CHUTAR ⚽</button>
+  </div>
+  <button class="restart" id="restart">Reiniciar partido</button>
+  <p class="help">Computadora: WASD o flechas para moverte · Espacio para chutar.</p>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const scoreAEl = document.getElementById('scoreA');
+  const scoreBEl = document.getElementById('scoreB');
+  const clockEl = document.getElementById('clock');
+  const keys = new Set();
+  const touchDirs = new Set();
+  let scoreA = 0, scoreB = 0, timeLeft = 90, last = performance.now();
+  let gameOver = false, message = '', messageUntil = 0;
+  const player = {x:170, y:H/2, r:19, speed:245, color:'#2084ff'};
+  const rival = {x:W-170, y:H/2, r:20, speed:142, color:'#ef4545'};
+  const ball = {x:W/2, y:H/2, r:11, vx:0, vy:0};
+  const clamp = (v,min,max) => Math.max(min, Math.min(max,v));
+  function resetPositions() {
+    player.x=170; player.y=H/2; rival.x=W-170; rival.y=H/2;
+    ball.x=W/2; ball.y=H/2; ball.vx=0; ball.vy=0;
+  }
+  function restart() {
+    scoreA=0; scoreB=0; timeLeft=90; gameOver=false; message=''; resetPositions(); updateHud();
+  }
+  function updateHud() {
+    scoreAEl.textContent=scoreA; scoreBEl.textContent=scoreB;
+    const t=Math.ceil(timeLeft);
+    clockEl.textContent=String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+  }
+  function goal(team) {
+    if (team==='blue') scoreA++; else scoreB++;
+    message = team==='blue' ? '¡GOOOL DEL AZUL!' : '¡GOL DEL ROJO!';
+    messageUntil = performance.now()+1200;
+    resetPositions(); updateHud();
+  }
+  function movePlayer(dt) {
+    let dx=0, dy=0;
+    if(keys.has('ArrowLeft')||keys.has('a')||touchDirs.has('left')) dx--;
+    if(keys.has('ArrowRight')||keys.has('d')||touchDirs.has('right')) dx++;
+    if(keys.has('ArrowUp')||keys.has('w')||touchDirs.has('up')) dy--;
+    if(keys.has('ArrowDown')||keys.has('s')||touchDirs.has('down')) dy++;
+    if(dx&&dy){dx*=Math.SQRT1_2;dy*=Math.SQRT1_2;}
+    player.x=clamp(player.x+dx*player.speed*dt, 44, W-44);
+    player.y=clamp(player.y+dy*player.speed*dt, 34, H-34);
+  }
+  function kick() {
+    if(gameOver) return;
+    const dx=ball.x-player.x, dy=ball.y-player.y;
+    const d=Math.hypot(dx,dy);
+    if(d<65) {
+      const aimX=(W-38)-ball.x, aimY=(H/2)-ball.y;
+      const aimD=Math.hypot(aimX,aimY)||1;
+      ball.vx=(aimX/aimD)*520 + (dx/(d||1))*90;
+      ball.vy=(aimY/aimD)*520 + (dy/(d||1))*90;
+    }
+  }
+  function update(dt, now) {
+    if(!gameOver) {
+      timeLeft-=dt;
+      if(timeLeft<=0){timeLeft=0;gameOver=true;message=scoreA===scoreB?'¡EMPATE!':scoreA>scoreB?'¡GANÓ EL AZUL!':'¡GANÓ EL ROJO!';messageUntil=Infinity;}
+      movePlayer(dt);
+      // Rival follows the ball, but stays on its side of the field.
+      const tx=ball.x, ty=ball.y;
+      const rx=tx-rival.x, ry=ty-rival.y, rd=Math.hypot(rx,ry)||1;
+      rival.x=clamp(rival.x+(rx/rd)*rival.speed*dt, W/2+18, W-44);
+      rival.y=clamp(rival.y+(ry/rd)*rival.speed*dt, 34, H-34);
+      // Player and rival gently push the ball.
+      for(const p of [player,rival]) {
+        const dx=ball.x-p.x, dy=ball.y-p.y, d=Math.hypot(dx,dy)||1;
+        const min=p.r+ball.r;
+        if(d<min) {
+          const nx=dx/d, ny=dy/d;
+          ball.x=p.x+nx*min; ball.y=p.y+ny*min;
+          ball.vx+=nx*100; ball.vy+=ny*100;
+        }
+      }
+      ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
+      ball.vx*=Math.pow(0.985,dt*60); ball.vy*=Math.pow(0.985,dt*60);
+      if(ball.y<ball.r+20){ball.y=ball.r+20;ball.vy=Math.abs(ball.vy)*0.78;}
+      if(ball.y>H-ball.r-20){ball.y=H-ball.r-20;ball.vy=-Math.abs(ball.vy)*0.78;}
+      // Goals are openings in the left and right end lines.
+      if(ball.x<25 && Math.abs(ball.y-H/2)<82){goal('red');}
+      else if(ball.x>W-25 && Math.abs(ball.y-H/2)<82){goal('blue');}
+      else {
+        if(ball.x<ball.r+20){ball.x=ball.r+20;ball.vx=Math.abs(ball.vx)*0.78;}
+        if(ball.x>W-ball.r-20){ball.x=W-ball.r-20;ball.vx=-Math.abs(ball.vx)*0.78;}
+      }
+      updateHud();
+    }
+  }
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#238447';ctx.fillRect(0,0,W,H);
+    // Alternating grass stripes
+    for(let i=0;i<9;i++){if(i%2===0){ctx.fillStyle='rgba(255,255,255,.045)';ctx.fillRect(i*W/9,0,W/9,H);}}
+    ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=4;
+    ctx.strokeRect(20,20,W-40,H-40);
+    ctx.beginPath();ctx.moveTo(W/2,20);ctx.lineTo(W/2,H-20);ctx.stroke();
+    ctx.beginPath();ctx.arc(W/2,H/2,78,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.9)';
+    ctx.fillRect(0,H/2-82,30,164);ctx.fillRect(W-30,H/2-82,30,164);
+    ctx.fillStyle='#238447';ctx.fillRect(20,H/2-64,30,128);ctx.fillRect(W-50,H/2-64,30,128);
+    ctx.strokeRect(20,H/2-112,120,224);ctx.strokeRect(W-140,H/2-112,120,224);
+    // Players
+    for(const p of [player,rival]) {
+      ctx.beginPath();ctx.fillStyle='rgba(0,0,0,.22)';ctx.ellipse(p.x,p.y+7,p.r*1.05,p.r*.7,0,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.fillStyle=p.color;ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.stroke();
+      ctx.fillStyle='#fff';ctx.font='bold 15px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(p===player?'10':'9',p.x,p.y+1);
+    }
+    // Ball
+    ctx.beginPath();ctx.fillStyle='#fff';ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#18251d';ctx.lineWidth=2;ctx.stroke();
+    ctx.beginPath();ctx.fillStyle='#18251d';ctx.arc(ball.x,ball.y,4,0,Math.PI*2);ctx.fill();
+    if(performance.now()<messageUntil && message) {
+      ctx.fillStyle='rgba(0,0,0,.65)';ctx.fillRect(W/2-210,H/2-38,420,76);
+      ctx.fillStyle='#fff';ctx.font='bold 28px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(message,W/2,H/2);
+    }
+    if(gameOver) {
+      ctx.fillStyle='rgba(0,0,0,.72)';ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 40px system-ui';ctx.fillText(message,W/2,H/2-12);
+      ctx.font='22px system-ui';ctx.fillText('Pulsa “Reiniciar partido” para jugar otra vez',W/2,H/2+32);
+    }
+  }
+  function loop(now) {
+    const dt=Math.min((now-last)/1000,0.035);last=now;
+    update(dt,now);draw();requestAnimationFrame(loop);
+  }
+  window.addEventListener('keydown',e=>{const k=e.key.length===1?e.key.toLowerCase():e.key;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();keys.add(k);if(e.key===' ')kick();});
+  window.addEventListener('keyup',e=>{keys.delete(e.key.length===1?e.key.toLowerCase():e.key);});
+  document.querySelectorAll('[data-dir]').forEach(btn=>{
+    const dir=btn.dataset.dir;
+    const start=e=>{e.preventDefault();touchDirs.add(dir);};
+    const stop=e=>{e.preventDefault();touchDirs.delete(dir);};
+    btn.addEventListener('pointerdown',start);btn.addEventListener('pointerup',stop);
+    btn.addEventListener('pointercancel',stop);btn.addEventListener('pointerleave',stop);
+  });
+  document.getElementById('kick').addEventListener('pointerdown',e=>{e.preventDefault();kick();});
+  document.getElementById('restart').addEventListener('click',restart);
+  updateHud();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
